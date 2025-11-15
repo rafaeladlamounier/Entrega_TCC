@@ -1,0 +1,52 @@
+COD PDV;id;name;type;latitude;longitude;bairro;demanda_LATA;demanda_PET;demanda_GARRAFA;tempo_servico_min;peso_total_kg;volume_total_m3
+0;0;CDD;CDD;-19.911125;-44.049394;Cincao;0;0;0;0.0;0.0;0.0
+1;2626539376;Sacolão Serra Verde;supermarket;-19.9379815;-43.9207447;Serra;195;174;186;301.0;7295.7;16.95
+2;10914200905;Floresta;restaurant;-19.9167429;-43.9292256;Floresta;27;0;2;24.33;167.5;0.316
+3;2506432946;Cantina Vovó Olímpia;restaurant;-19.9034385;-43.9658499;Caiçaras;18;0;0;20.0;81.0;0.144
+4;826308847;Villa Portus Restaurante;restaurant;-19.9039691;-43.9617251;Santo André;11;0;22;32.33;555.5;1.188
+5;899281253;Super Nosso;restaurant;-19.9597917;-43.9446927;Santa Lúcia;15;0;26;36.33;665.5;1.42
+6;2521471006;Sushi Sam;restaurant;-19.9053396;-43.9772891;Caiçara-Adelaide;26;0;19;35.33;554.0;1.158
+7;3623944071;Pizzaria Sion;restaurant;-19.9526336;-43.9311385;Sion;18;0;27;38.0;702.0;1.494
+8;2723795119;Cia do Peixe;restaurant;-19.9336118;-44.0169407;Santa Maria;2;0;22;29.33;515.0;1.116
+9;1583687134;Buona Tavola;restaurant;-19.9340896;-43.9356588;Savassi;28;0;10;30.0;356.0;0.724
+10;1263380441;Nossa Casa;restaurant;-19.9293816;-43.9346808;Boa Viagem;5;0;15;25.67;367.5;0.79
+11;1263380444;Roast;restaurant;-19.9304481;-43.9348743;Boa Viagem;2;0;8;20.0;193.0;0.416
+12;1748284564;Bar da Tiana;restaurant;-19.9018363;-43.9750257;Alto dos Caiçaras;27;0;4;25.67;213.5;0.416
+13;3043549875;Cantina da Naná;restaurant;-19.9375034;-43.9470611;Santo Antônio;0;0;1;14.67;23.0;0.05
+14;1683189523;Ivanilde;restaurant;-19.9760499;-43.945758;Belvedere;15;0;17;30.33;458.5;0.97
+15;4986159916;Dia;supermarket;-19.9501002;-43.9992634;Cabana do Pai Tomás;281;250;0;251.0;4339.5;10.998
+16;6211135185;EPA;supermarket;-20.0114855;-44.0327492;Conjunto Ernesto do Nascimento;209;481;188;409.33;11180.8;27.907
+17;1272069592;Comida Mineira;restaurant;-19.9250451;-43.9442353;Santo Agostinho;6;0;28;34.67;671.0;1.448
+18;11260170046;Assaí Atacadista;supermarket;-19.8763828;-43.9259339;União;345;217;277;426.0;10592.6;24.205
+19;1394031002;Território Alvinegro;restaurant;-19.9299403;-44.0171061;Califórnia;12;0;24;34.0;606.0;1.296
+20;1239327045;Estação Parada do Cardoso;restaurant;-19.9158524;-43.9105711;Santa Tereza;15;0;8;24.33;251.5;0.52
+21;540434289;Lobo's Grill;restaurant;-19.9364212;-43.97009;Alto Barroca;31;0;30;44.33;829.5;1.748
+22;4597241157;Supermercado Roma;supermarket;-19.8993334;-43.9180727;Sagrada Família;242;121;319;387.67;9914.3;22.121
+23;1511455581;Balaio de Gato;bar;-19.9261134;-43.9462549;Erro ao buscar bairro;37;0;39;52.33;1063.5;2.246
+24;5049662665;Mania Gostosa;restaurant;-19.9254284;-43.9357062;Erro ao buscar bairro;7;0;1;17.0;54.5;0.106
+25;175594270;Jatobar;restaurant;-19.8711718;-43.9803074;Erro ao buscar bairro;28;0;10;30.0;356.0;0.724
+26;2849415098;Supermercado BH;supermarket;-19.9185491;-43.9103934;Santa Efigênia;376;5;0;201.0;1753.5;3.183
+27;863501299;Pomodori;restaurant;-19.9387687;-43.9344229;Savassi;0;0;8;19.33;184.0;0.4
+28;736577763;Lanchonte Saudade;restaurant;-19.9189185;-43.8991542;Saudade;16;0;2;20.67;118.0;0.228
+29;1005874838;Paiol Grill;restaurant;-19.926685;-43.9269842;Santa Efigênia;12;0;26;35.33;652.0;1.396
+30;10120067517;Fillys;restaurant;-19.8746945;-43.998483;Castelo;12;0;22;32.67;560.0;1.196
+31;959589745;Mapemel Lanches;restaurant;-19.8475631;-43.934932;São Bernardo;4;0;16;26.0;386.0;0.832
+32;1268796120;Ximbungo's Bar;bar;-19.9657222;-43.9826989;Cinquentenário;50;0;47;62.0;1306.0;2.75
+33;1946185227;Casa Mineira;restaurant;-19.927818;-43.93042;Funcionários;31;0;17;35.67;530.5;1.098
+34;4573017690;Bitenca Bar e Restaurante;restaurant;-19.9219171;-43.9542245;Barro Preto;24;0;1;22.67;131.0;0.242
+35;1570381231;Carrefour;supermarket;-19.9222473;-43.9406047;Centro;71;276;131;257.0;6727.3;16.778
+36;10095617717;Querida Jacinta;restaurant;-19.923818;-43.9218827;Santa Efigênia;28;0;5;26.67;241.0;0.474
+37;560386049;Restaurante Universitário UFMG;restaurant;-19.9154773;-43.9364118;Centro;9;0;25;33.67;615.5;1.322
+38;1523690513;Krug Bier;bar;-19.9420157;-43.9361456;São Pedro;42;0;46;58.67;1247.0;2.636
+39;1724796042;Bar do João;bar;-19.826876;-43.9647772;São João Batista;37;0;43;55.0;1155.5;2.446
+40;227831134;Supermercados BH;supermarket;-19.9110794;-43.9690445;Carlos Prates;94;218;59;197.33;4461.4;11.332
+41;1240914399;Bar Tudo Legal;bar;-19.936758;-43.9454952;Santo Antônio;47;0;40;56.33;1131.5;2.376
+42;9394883217;Isto e aQuilo;restaurant;-19.9301861;-43.9474081;Santo Agostinho;23;0;14;31.0;425.5;0.884
+43;11084649905;Sushi Japa;restaurant;-19.8619349;-43.9403065;Dona Clara;30;0;7;28.67;296.0;0.59
+44;224942688;Baby Beef;restaurant;-19.8764857;-43.9274616;União;19;0;27;38.33;706.5;1.502
+45;3325970881;Projeto Sabor;restaurant;-19.9549706;-43.9500239;São Bento;23;0;10;28.33;333.5;0.684
+46;1097287151;Gosto de Casa;restaurant;-19.9327188;-43.9580602;Gutierrez;25;0;31;43.0;825.5;1.75
+47;1013337097;Dragon Minas;restaurant;-19.9309093;-43.9272383;Funcionários;1;0;11;21.67;257.5;0.558
+48;3043565634;Peixinho;restaurant;-19.936192;-43.9469058;Cidade Jardim;8;0;14;26.0;358.0;0.764
+49;1584761526;Bar Liberdade;bar;-19.9331507;-43.9369708;Savassi;35;0;47;57.0;1238.5;2.63
+50;11862960434;Splendido;restaurant;-19.9148759;-43.9282654;Floresta;25;0;20;35.67;572.5;1.2

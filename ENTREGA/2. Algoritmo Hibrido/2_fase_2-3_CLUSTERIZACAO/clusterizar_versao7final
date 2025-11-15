@@ -1,0 +1,484 @@
+import pandas as pd
+import numpy as np
+import itertools
+import os
+import time
+
+# RESTRIÇÕES
+CAPACIDADE_MAXIMA = 12000.0  
+JORNADA_MAXIMA = 510.0  
+LIMITE_EXATO_CLUSTERIZACAO = 8  # Número máximo de PDVs para usar método exato na fase de clusterização
+LIMITE_EXATO_OTIMIZACAO = 10  #Número máximo na fase de Otimização
+
+# CAMINHOS ENTRADA
+caminho_pdvs = 'ENTREGA/0. DADOS/rotas/hibrido/preclusterizacao/pdvs_para_clusterizar.csv'
+caminho_dedicadas = 'ENTREGA/0. DADOS/rotas/hibrido/preclusterizacao/rotas_dedicadas_excesso.csv'
+caminho_savings = 'ENTREGA/0. DADOS/matrizes_amostra/csv/savings_list_ranked.csv'
+caminho_matriz_tempos = 'ENTREGA/0. DADOS/matrizes_amostra/npy/matriz_tempos.npy'
+caminho_matriz_distancias = 'ENTREGA/0. DADOS/matrizes_amostra/npy/matriz_distancias.npy'
+caminho_amostra = 'ENTREGA/0. DADOS/amostra/estabelecimentos_bh_amostra_bairros.csv'
+
+# CAMINHOS SAÍDA
+saida_visualizacao = 'ENTREGA/0. DADOS/rotas/hibrido/VERSAOFINAL/rotas_clusterizadas_visualizacao.csv'
+saida_relatorio = 'ENTREGA/0. DADOS/rotas/hibrido/VERSAOFINAL/relatorio_geral_rotas.csv'
+saida_log_clusterizacao = 'ENTREGA/0. DADOS/rotas/hibrido/VERSAOFINAL/log_diagnostico_fusoes.csv'
+saida_log_otimizacao = 'ENTREGA/0. DADOS/rotas/hibrido/VERSAOFINAL/log_otimizacao_final.csv'
+
+#Tempo de atendimento de acordo com o tipo de estabelecimento e a demanda
+def tempo_atendimento(dados_pdv):
+    tipo = dados_pdv.get('type', 'CDD')
+    if tipo == 'CDD': 
+        return 0
+    
+    lata = dados_pdv.get('demanda_LATA', 0)
+    pet = dados_pdv.get('demanda_PET', 0)
+    garrafa = dados_pdv.get('demanda_GARRAFA', 0)
+    
+    tempo_base = 14.0
+    tempo_fila = 60.0 if tipo in ['supermarket', 'alcohol'] else 0
+    tempo_desc = (lata + pet + garrafa) * (20.0 / 60.0)
+    tempo_ret = garrafa * (20.0 / 60.0)
+    
+    return round(tempo_base + tempo_fila + tempo_desc + tempo_ret, 2)
+
+#Métricas de tempo e distância para a sequência de visitas)
+def calcular_metricas(seq, mat_tempo, mat_dist):
+    if not seq:
+        return {'sequencia': (), 'tempo_desloc_total': 0, 'dist_total': 0, 
+                'dist_deslocamento': 0, 'dist_laco': 0}
+    
+    t = mat_tempo[0, seq[0]]
+    d = mat_dist[0, seq[0]]
+    laco = 0
+    
+    for i in range(len(seq) - 1):
+        t += mat_tempo[seq[i], seq[i+1]]
+        trecho = mat_dist[seq[i], seq[i+1]]
+        laco += trecho
+        d += trecho
+    
+    t += mat_tempo[seq[-1], 0]
+    d += mat_dist[seq[-1], 0]
+    desloc = mat_dist[0, seq[0]] + mat_dist[seq[-1], 0]
+    
+    return {'sequencia': tuple(seq), 'tempo_desloc_total': t, 'dist_total': d,
+            'dist_deslocamento': desloc, 'dist_laco': laco}
+
+#Função auxiliar para cálculo da distancia total da rota
+def calcular_distancia_rota(seq, mat_dist):
+    if not seq:
+        return 0
+    d = mat_dist[0, seq[0]]  
+    for i in range(len(seq) - 1): 
+        d += mat_dist[seq[i], seq[i+1]]
+    d += mat_dist[seq[-1], 0] 
+    return d
+
+#Implementação da Herística de melhoria 2-opt
+def melhorar_2opt(seq, mat_dist):
+    atual = seq[:]  # Copia a sequência atual
+    melhorou = True  # Flag para controlar o loop
+    # Continua tentando melhorar enquanto houver melhorias
+    while melhorou:
+        melhorou = False
+        custo_atual = calcular_distancia_rota(atual, mat_dist)        
+        #Passa por todas as inversões de segmentos
+        for i in range(1, len(atual) - 2):
+            for j in range(i + 1, len(atual)):
+                if j - i == 1:  #Pula pares adjacentes
+                    continue
+                #Inverte a ordem entre i e j
+                nova = atual[:i] + atual[i:j][::-1] + atual[j:]
+                novo_custo = calcular_distancia_rota(nova, mat_dist)
+                #Atualiza caso a nova rota seja melhor
+                if novo_custo < custo_atual:
+                    atual = nova
+                    custo_atual = novo_custo
+                    melhorou = True
+        
+        seq = atual[:]  #E atualiza a sequência
+    
+    return atual
+
+#TSP - Heurística do Vizinho mais Próximo
+def tsp_rapido(indices, mat_tempo, mat_dist, tempo_max):
+    seq = [indices[0]]  # Começa com o primeiro PDV
+    nao_visitados = set(indices) - {indices[0]}  # Conjunto dos PDVs não visitados
+    pos = indices[0]
+
+    #Enquanto ainda houver pdvs não visitados
+    while nao_visitados:
+        #Escolhe o pdv com a distancia mínima com relação a posição atual. Atualiza posição e lista de não visitados
+        prox = min(nao_visitados, key=lambda v: mat_tempo[pos, v])
+        seq.append(prox)
+        nao_visitados.remove(prox)
+        pos = prox
+    
+    # Calcula as métricas da rota construída e verifica restrição
+    resultado = calcular_metricas(seq, mat_tempo, mat_dist)
+    viavel = resultado['tempo_desloc_total'] <= tempo_max 
+    return resultado, viavel
+
+#TSP - Busca Exaustiva
+def tsp_exato(indices, mat_tempo, mat_dist):
+    melhor_t = float('inf')  #Inicializa com tempo infinito
+    melhor_seq = ()
+    
+    # Testa todas as permutações possíveis dos PDVs
+    for perm in itertools.permutations(indices):
+        t = mat_tempo[0, perm[0]]  # Tempo do CDD ao primeiro
+        for i in range(len(perm) - 1):  #Entre os PDVs
+            t += mat_tempo[perm[i], perm[i+1]]
+        t += mat_tempo[perm[-1], 0]  #Do último ao CDD
+        
+        # Se encontrou tempo melhor, atualiza
+        if t < melhor_t:
+            melhor_t = t
+            melhor_seq = perm
+    
+    #Calcula as métricas da melhor sequência encontrada
+    return calcular_metricas(melhor_seq, mat_tempo, mat_dist)
+
+#TSP COMPLETA - Vizinho mais Próximo + 2-opt
+def tsp_completo(indices, mat_tempo, mat_dist):
+    melhor = {'tempo_desloc_total': float('inf')}  #Inicializa com tempo infinito
+    #testa início a partir de todos os pdvs
+    for inicio in indices:
+        seq = [inicio] 
+        falta = set(indices) - {inicio} 
+        pos = inicio
+        #Constrói rota usando vizinho mais próximo
+        while falta:
+            prox = min(falta, key=lambda v: mat_tempo[pos, v])
+            seq.append(prox)
+            falta.remove(prox)
+            pos = prox
+        # Melhora a rota com 2-opt
+        seq_otim = melhorar_2opt(seq, mat_dist)
+        resultado = calcular_metricas(seq_otim, mat_tempo, mat_dist)
+        # Se encontrou solução melhor, atualiza
+        if resultado['tempo_desloc_total'] < melhor['tempo_desloc_total']:
+            melhor = resultado
+    return melhor
+
+#Resolve TSP - CLUSTERIZAÇÃO (viabilidade)
+def resolver_clusterizacao(indices, t_atend, mat_tempo, mat_dist):
+    n = len(indices)
+    #Casos base: sem PDVs ou apenas 1 PDV
+    if n == 0:
+        return {'sequencia': (), 'tempo_desloc_total': 0, 'dist_total': 0, 
+                'dist_deslocamento': 0, 'dist_laco': 0}, "N/A", True
+    if n == 1:
+        return calcular_metricas(indices, mat_tempo, mat_dist), "Simples", True
+    #Tempo disponível para deslocamento
+    tempo_max = JORNADA_MAXIMA - t_atend  
+    #Método exato para clusters pequenos (clusterização)
+    if n <= LIMITE_EXATO_CLUSTERIZACAO:
+        res = tsp_exato(indices, mat_tempo, mat_dist)
+        return res, "Exato", res['tempo_desloc_total'] <= tempo_max
+    else:  #Heurística para clusters maiores
+        res, viavel = tsp_rapido(indices, mat_tempo, mat_dist, tempo_max)
+        return res, "Heuristico", viavel
+
+#Resolve TSP - OTIMIZAÇÃO (qualidade)
+def resolver_otimizacao(indices, mat_tempo, mat_dist):
+    n = len(indices)
+    # Casos base: sem PDVs ou apenas u1 PDV
+    if n == 0:
+        return {'sequencia': (), 'tempo_desloc_total': 0, 'dist_total': 0, 
+                'dist_deslocamento': 0, 'dist_laco': 0}, "N/A"
+    if n == 1:
+        return calcular_metricas(indices, mat_tempo, mat_dist), "Simples"
+    #Método exato para clusters pequenos (otimização) 
+    if n <= LIMITE_EXATO_OTIMIZACAO:
+        return tsp_exato(indices, mat_tempo, mat_dist), "Exato"
+    else:  #Heirísticas para clusters maiores
+        return tsp_completo(indices, mat_tempo, mat_dist), "Completo"
+
+try:
+    df_pdvs = pd.read_csv(caminho_pdvs, sep=';')
+    df_savings = pd.read_csv(caminho_savings, sep=';')
+    df_dedicadas = pd.read_csv(caminho_dedicadas, sep=';') if os.path.exists(caminho_dedicadas) else pd.DataFrame()
+    df_amostra = pd.read_csv(caminho_amostra, sep=';', dtype={'COD PDV': str})
+    df_amostra.set_index('COD PDV', inplace=True)  # Define COD PDV como índice
+    mat_tempo = np.load(caminho_matriz_tempos) /60.0
+    mat_dist = np.load(caminho_matriz_distancias) /1000.0
+except Exception as e:
+    print(f"Erro ao carregar: {e}")
+    exit()
+
+#Dicionários para conversão entre código de PDV e índice na matriz
+codigo_indice = {row['COD PDV']: idx for idx, row in df_pdvs.iterrows()}
+indice_codigo = {v: k for k, v in codigo_indice.items()}
+
+
+print("Inicializando rotas")
+rotas = {}  
+pdv_para_rota = {}  
+
+# Para cada PDV, cria uma rota exclusiva e calcula suas métricas
+for idx, row in df_pdvs.iterrows():
+    cod = row['COD PDV']
+    if cod == 0: 
+        continue
+    #Resolve o TSP para uma rota com apenas este PDV
+    stats, _, _ = resolver_clusterizacao([idx], row['tempo_servico_min'], mat_tempo, mat_dist)
+    
+    rotas[cod] = {
+        'indices': [idx],  
+        'sequencia': stats['sequencia'],  
+        't_desloc': stats['tempo_desloc_total'],  
+        'd_total': stats['dist_total'],  
+        'd_desloc': stats['dist_deslocamento'], 
+        'd_laco': stats['dist_laco'], 
+        't_atend': row['tempo_servico_min'],  
+        'peso': row['peso_total_kg'], 
+        'vol': row['volume_total_m3'], 
+        'lata': row['demanda_LATA'],  
+        'pet': row['demanda_PET'],  
+        'garrafa': row['demanda_GARRAFA'], 
+        'min_ida': mat_tempo[0, idx],  
+        'min_volta': mat_tempo[idx, 0]  
+    }
+    pdv_para_rota[cod] = cod  
+
+#FASE 2: CLUSTERIZAÇÃO
+#Nessa versão, a otimização é feita pós clusterização, com a chamada de tsp para analise do tempo mínimo da rota
+print("\nFASE 2: Clusterização")
+t_inicio = time.time()  
+fusoes = 0  
+log_clust = []  # Lista para armazenar o log de cada tentativa de fusão, serviu para identificar possíveis pontos de melhora e maiores custos computacionais no algoritmo
+
+# Percorre a lista de savings em ordem decrescente 
+for idx, saving in df_savings.iterrows():
+    #Registro de log da tentativa de fusão
+    log = {
+        'linha': idx, 'saving': saving['saving_distancia_km'],
+        'cod_i': saving['COD_PDV_Origem'], 'cod_j': saving['COD_PDV_Destino'],
+        'status': 'N/A', 'motivo': '', 'metodo': '',
+        'tempo_ms': 0, 'n_pdvs': 0,
+        'peso': 0, 't_atend': 0, 't_total': 0, 't_min': 0
+    }
+    t_ver = time.time()  #Marca o início da verificação
+    
+    cod_i = saving['COD_PDV_Origem']
+    cod_j = saving['COD_PDV_Destino']
+    rota_i = pdv_para_rota.get(cod_i)
+    rota_j = pdv_para_rota.get(cod_j)
+    
+    # Verifica se ambos os PDVs existem e estão em rotas diferentes
+    if rota_i is not None and rota_j is not None and rota_i != rota_j:
+        obj_i = rotas[rota_i]  
+        obj_j = rotas[rota_j]  
+        
+        # Combina os índices das duas rotas
+        novos = obj_i['indices'] + obj_j['indices']
+        log['n_pdvs'] = len(novos)
+        
+        # Verifica restrição de peso
+        peso_novo = obj_i['peso'] + obj_j['peso']
+        log['peso'] = peso_novo
+        if peso_novo <= CAPACIDADE_MAXIMA:
+            # Verifica restrição de tempo de atendimento  
+            t_atend_novo = obj_i['t_atend'] + obj_j['t_atend']
+            log['t_atend'] = t_atend_novo
+            if t_atend_novo <= JORNADA_MAXIMA:
+                # Calcula lower bound do tempo de deslocamento
+                ida_min = min(obj_i['min_ida'], obj_j['min_ida'])  
+                volta_min = min(obj_i['min_volta'], obj_j['min_volta'])  
+                t_min = ida_min + volta_min
+                log['t_min'] = t_min
+                # Verifica se o lower bound + o tempo de atendimento já não ultrapassa a jornada
+                if (t_atend_novo + t_min) <= JORNADA_MAXIMA:
+                    #TSP - CLUSTERIZAÇÃO para cada tentativa de fusão, caso passe em todas as verificações
+                    stats, metodo, viavel = resolver_clusterizacao(novos, t_atend_novo, mat_tempo, mat_dist)
+                    log['metodo'] = metodo
+                    t_total = t_atend_novo + stats['tempo_desloc_total']
+                    log['t_total'] = t_total
+                    # Verifica se a rota combinada é viável
+                    if viavel and t_total <= JORNADA_MAXIMA:
+                        fusoes += 1  
+                        log['status'] = 'OK'
+                        # Atualiza a rota_i com os dados combinados dos pdvs
+                        rotas[rota_i] = {
+                            'indices': novos,
+                            'sequencia': stats['sequencia'],
+                            't_desloc': stats['tempo_desloc_total'],
+                            'd_total': stats['dist_total'],
+                            'd_desloc': stats['dist_deslocamento'],
+                            'd_laco': stats['dist_laco'],
+                            't_atend': t_atend_novo,
+                            'peso': peso_novo,
+                            'vol': obj_i['vol'] + obj_j['vol'],
+                            'lata': obj_i['lata'] + obj_j['lata'],
+                            'pet': obj_i['pet'] + obj_j['pet'],
+                            'garrafa': obj_i['garrafa'] + obj_j['garrafa'],
+                            'min_ida': ida_min,
+                            'min_volta': volta_min
+                        }
+                        
+                        # Atualiza o mapeamento de PDV para rota 
+                        for i in obj_j['indices']:
+                            pdv_para_rota[indice_codigo[i]] = rota_i
+                        del rotas[rota_j]  
+                    else:
+                        log['status'] = 'FALHA'
+                        log['motivo'] = 'TEMPO'  #Falha por exceder tempo total
+                else:
+                    log['status'] = 'FALHA'
+                    log['motivo'] = 'LOWER_BOUND'  #Falha na verificação do lower bound
+            else:
+                log['status'] = 'FALHA'
+                log['motivo'] = 'ATENDIMENTO'  #Falha por tempo de atendimento, por si só, já ultrapassar a restrição
+        else:
+            log['status'] = 'FALHA'
+            log['motivo'] = 'PESO'  #Falha por exceder peso máximo
+    else:
+        log['status'] = 'PRÓXIMO'
+        log['motivo'] = 'MESMA_ROTA'  #PDVs já estão na mesma rota
+    
+    #Registra o tempo gasto nesta verificação
+    log['tempo_ms'] = (time.time() - t_ver) * 1000
+    log_clust.append(log)
+
+t_fim = time.time()
+print(f"Concluído: {fusoes} fusões, {len(rotas)} rotas ({t_fim - t_inicio:.1f}s)")
+
+# FASE 3:OTIMIZAÇÃO
+print("\nFASE 3: Otimização")
+t_otim_ini = time.time()
+log_otim = []  # Lista para log da otimização
+
+# Para cada rota formada na clusterização
+for rota_id, rota in rotas.items():
+    if len(rota['indices']) <= 1:  
+        continue
+    t_antes = rota['t_desloc']
+    d_antes = rota['d_total']
+    #TSP - OTIMIZAÇÃO para cada rota clusterizada
+    stats, metodo = resolver_otimizacao(rota['indices'], mat_tempo, mat_dist)
+    #Atualização das rotas com a otimização
+    rotas[rota_id]['sequencia'] = stats['sequencia']
+    rotas[rota_id]['t_desloc'] = stats['tempo_desloc_total']
+    rotas[rota_id]['d_total'] = stats['dist_total']
+    rotas[rota_id]['d_desloc'] = stats['dist_deslocamento']
+    rotas[rota_id]['d_laco'] = stats['dist_laco']
+    # Calculo dos ganhos 
+    dif_t = t_antes - stats['tempo_desloc_total']
+    dif_d = d_antes - stats['dist_total']
+    pct_t = (dif_t / t_antes * 100) if t_antes > 0 else 0
+    pct_d = (dif_d / d_antes * 100) if d_antes > 0 else 0
+    
+    #Registro no log de otimização
+    log_otim.append({
+        'rota': rota_id,
+        'n_pdvs': len(rota['indices']),
+        'metodo': metodo,
+        't_antes': t_antes,
+        't_depois': stats['tempo_desloc_total'],
+        'ganho_t': dif_t,
+        'ganho_t_pct': pct_t,
+        'd_antes': d_antes,
+        'd_depois': stats['dist_total'],
+        'ganho_d': dif_d,
+        'ganho_d_pct': pct_d
+    })
+
+t_otim_fim = time.time()
+print(f"Concluído: {len(log_otim)} rotas otimizadas ({t_otim_fim - t_otim_ini:.1f}s)")
+
+#Impressão das estastísticas de ganhos com a otimização e salvamento dos logs de diagnosticos em formato csv
+if log_otim:
+    df_o = pd.DataFrame(log_otim)
+    print(f"Economia total: {df_o['ganho_t'].sum():.1f} min, {df_o['ganho_d'].sum():.1f} km")
+    print(f"Média: {df_o['ganho_t_pct'].mean():.1f}% tempo")
+pd.DataFrame(log_clust).to_csv(saida_log_clusterizacao, index=False, sep=';')
+if log_otim:
+    pd.DataFrame(log_otim).to_csv(saida_log_otimizacao, index=False, sep=';')
+
+#Arquivo de visualização das rotas em formato csv, posteriormente usado no MY MAPS Google
+df_vis = df_pdvs.copy()
+df_vis['ROTA_NUMERO'] = 'R0_CDD'  
+num = 1
+for rota_id, rota in rotas.items():
+    df_vis.loc[rota['indices'], 'ROTA_NUMERO'] = f"R{num}"  
+    num += 1
+df_vis.to_csv(saida_visualizacao, index=False, sep=';')
+
+
+relatorio = []
+num = 1
+#Para cada rota clusterizada
+for rota_id, r in rotas.items():
+    nome = f"R{num}"
+    #Cria a string que ordena a sequência de pdvs no cluster
+    seq_str = " -> ".join([str(indice_codigo.get(i, '??')) for i in r['sequencia']])
+    #qtde_pdvs varia de acordo com a rota. tipo_rota é clusterizada
+    relatorio.append({
+        'ROTA_NUMERO': nome,
+        'tipo_rota': 'Clusterizada',
+        'qtde_pdvs': len(r['indices']),
+        'sequencia_pdvs': f"CDD -> {seq_str} -> CDD",
+        'peso_total_kg': r['peso'],
+        'utilizacao_peso_perc': (r['peso'] / CAPACIDADE_MAXIMA) * 100,
+        'volume_total_m3': r['vol'],
+        'tempo_total_min': r['t_desloc'] + r['t_atend'],
+        'utilizacao_tempo_perc': ((r['t_desloc'] + r['t_atend']) / JORNADA_MAXIMA) * 100,
+        'tempo_atendimento_min': r['t_atend'],
+        'tempo_deslocamento_min': r['t_desloc'],
+        'distancia_total_km': r['d_total'],
+        'distancia_deslocamento_km': r['d_desloc'],
+        'distancia_laco_km': r['d_laco'],
+        'qtde_caixas_LATA': r['lata'],
+        'qtde_caixas_PET': r['pet'],
+        'qtde_caixas_GARRAFA': r['garrafa']
+    })
+    num += 1
+
+# Para cada rota dedicada
+for idx, ded in df_dedicadas.iterrows():
+    nome = f"D{idx + 1}"
+    cod = ded['COD PDV']
+    i = codigo_indice.get(cod)
+    if i is None:  
+        continue
+    
+    t_d = mat_tempo[0, i] + mat_tempo[i, 0]
+    d = mat_dist[0, i] + mat_dist[i, 0]
+    
+    t_s = tempo_atendimento({
+        'type': df_amostra.loc[str(cod)]['type'],
+        'demanda_LATA': ded['carga_lata'],
+        'demanda_PET': ded['carga_pet'],
+        'demanda_GARRAFA': ded['carga_garrafa']
+    })
+    
+    #qtde_pdvs é sempre 1 e tipo_rota é sempre 'Dedicada' 
+    relatorio.append({
+        'ROTA_NUMERO': nome,
+        'tipo_rota': 'Dedicada',
+        'qtde_pdvs': 1,
+        'sequencia_pdvs': f"CDD -> {cod} -> CDD",
+        'peso_total_kg': ded['peso_total_caminhao'],
+        'utilizacao_peso_perc': (ded['peso_total_caminhao'] / CAPACIDADE_MAXIMA) * 100,
+        'volume_total_m3': ded['volume_total_caminhao'],
+        'tempo_total_min': t_d + t_s,
+        'utilizacao_tempo_perc': ((t_d + t_s) / JORNADA_MAXIMA) * 100,
+        'tempo_atendimento_min': t_s,
+        'tempo_deslocamento_min': t_d,
+        'distancia_total_km': d,
+        'distancia_deslocamento_km': d,
+        'distancia_laco_km': 0,
+        'qtde_caixas_LATA': ded['carga_lata'],
+        'qtde_caixas_PET': ded['carga_pet'],
+        'qtde_caixas_GARRAFA': ded['carga_garrafa']
+    })
+
+# Cria DataFrame com o relatório, ordena e formata números
+df_rel = pd.DataFrame(relatorio).sort_values(by='ROTA_NUMERO')
+cols_num = df_rel.select_dtypes(include=[np.number]).columns
+df_rel[cols_num] = df_rel[cols_num].round(2)
+df_rel.to_csv(saida_relatorio, index=False, sep=';')
+
+print(f"\nFinalizado em {time.time() - t_inicio:.1f}s")
+print(f"Total: {len(rotas)} rotas")
